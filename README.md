@@ -1,1 +1,3 @@
-# paper_cow_skin_microbiota
+# Paper: cow skin microbiota
+
+Data and scripts used to generate the results of the article ""
