@@ -17,6 +17,7 @@ library("ggplot2")
 library("egg")
 library("data.table")
 library("dplyr")
+library("ggpubr")
 
 ###############
 ## PARAMETERS
@@ -26,8 +27,9 @@ HOME <- Sys.getenv("HOME")
 project_folder = file.path(HOME, "paper_cow_skin_microbiota")
 data_folder = "Data"
 res_folder = "Results"
+if(!file.exists(file.path(project_folder, res_folder))) dir.create(file.path(project_folder, res_folder), showWarnings = FALSE)
 conf_file = "metadata_cow_skin_microbiota.csv"
-otu_table = "otu_norm_cow_skin_microbiota.csv"
+otu_table = "otu_table_norm_cow_skin_microbiota.csv"
 
 fname1 = file.path(project_folder, data_folder, conf_file)
 metadata <- fread(fname1)
@@ -36,29 +38,38 @@ metadata <- metadata [order(metadata$sample),]
 meta <- metadata [,c(1,3)]
 meta_cols = names(meta)
 
+
 fname2 = file.path(project_folder, data_folder, otu_table)
-otu <- fread(fname2)
+otu <- fread(fname2,header = TRUE, sep = ",")
 otu <- filter(otu, Family !="Mitochondria")
 otu <- filter(otu, Class !="Chloroplast")
 otu <- filter(otu, Order !="Chloroplast")
 
-###############
-## Taxonomic analysis at phylum level
-###############
+## Taxonomic analysis at phylum level 
 
 otu_phylum=select(otu, 2:32)
 otu_phylum$Phyla <- paste(otu$Phylum)
 otu_phylum <- otu_phylum %>% group_by(Phyla) %>% summarise(across(everything(),sum))
 
-writeLines(" - generating table of core microbiota at phylum level")
-core_phyla <- otu_phylum%>%filter_all(all_vars(.!=0))
-rownames(core_phyla) <- core_phyla$Phyla
-core_phyla$Phyla <- NULL
-core_phyla$avg_count <- rowMeans(core_phyla)
+# Overall
 
-## making results folder
-if(!file.exists(file.path(project_folder, res_folder))) dir.create(file.path(project_folder, res_folder), showWarnings = FALSE)
-fwrite(x = core_phyla, file = file.path(project_folder, res_folder, "phyla_core.csv"))
+writeLines(" - generating table of core microbiota at phylum level")
+core_phyla_tot <- otu_phylum%>%filter_all(all_vars(.!=0))
+rownames(core_phyla_tot) <- core_phyla_tot$Phyla
+core_phyla_tot$Phyla <- NULL
+core_phyla_tot$avg_count <- rowMeans(core_phyla_tot)
+fwrite(x = core_phyla_tot, file = file.path(project_folder, res_folder, "phyla_core.csv"))
+
+# T0 or other 
+
+core_phyla_T0 <- otu_phylum%>%filter_all(all_vars(.!=0))
+vec <- filter(metadata, timepoint == "T0") 
+vec <- pull(vec, sample)
+core_phyla_T0 <- subset(core_phyla_T0, select=vec)
+rownames(core_phyla_T0) <- core_phyla_T0$Phyla
+core_phyla_T0$Phyla <- NULL
+core_phyla_T0$avg_count <- rowMeans(core_phyla_T0)
+fwrite(x = core_phyla_T0, file = file.path(project_folder, res_folder, "phyla_core_T0.csv"))
 
 ## Taxonomic analysis at phylum level - relative abundances
 
@@ -112,7 +123,7 @@ p <- ggplot(D, aes(x=factor(1), y=avg_abund, fill=taxa), palette(mycolors)) + ge
                legend.title=element_text(size=20)) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
 p
-ggsave(filename = file.path(project_folder, res_folder, "phyla_rel.abund.png"), plot = p, device = "png", width = 15, height = 9)
+#ggsave(filename = file.path(project_folder, res_folder, "phyla_rel.abund.png"), plot = p, device = "png", width = 15, height = 9)
 
 ## Taxonomic analysis at phylum level - Significance of time point
 mO$level <- "phylum"
@@ -206,22 +217,21 @@ comp <- comp %>% pivot_longer(cols = T0:T2, names_to = "timepoint", names_prefix
 q <- ggplot(temp, aes(x = factor(1), y = taxa, height=0.95)) + 
   geom_tile(aes(fill = p.value), colour = "white") +
   scale_fill_gradient(low = "#1aff1a", high = "#4b0092", limits=c(0,0.05)) + 
-  xlab("pvalue") + ylab("Phyla") + 
-  theme(axis.text.x = element_text(size = 19), axis.text.y = element_text(size = 13), axis.ticks = element_blank(), legend.position = "left", axis.title.x = element_blank(), axis.title.y = element_text(size=14))
+  xlab("pvalue") + ylab("Phyla") + coord_flip() +
+  theme(axis.text.x = element_text(size = 19, angle=45, vjust=1, hjust=1), axis.text.y = element_text(size = 10), axis.ticks = element_blank(), legend.position = "right", axis.title.x = element_blank(), axis.title.y = element_text(size=12))
 q
 
 comp$log <- -log10(comp$value)
 px <- ggplot(comp, aes(x=taxa, y=log, fill=timepoint)) + 
   geom_bar(width=0.95,stat="identity", position=position_dodge()) + 
-  theme(axis.text.y = element_blank(), axis.title.y = element_blank(), axis.ticks.y = element_blank()) +
-  coord_flip() + 
+  theme (axis.ticks.x = element_blank(), axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.y = element_blank()) +
   scale_fill_manual(values = c("#FFC20A", "#0C7BDC", "#e66100", "#40b0A6" )) + 
   ylab("-log10(count)")
 px
 
-join <- ggarrange(q, px, widths=c(0.5,1), heights=c(1,1), labels = c("A","B"))
+join <- ggarrange(px, q, widths=c(1,1), heights=c(1,0.5), labels = c("A","B"), ncol = 1, nrow = 2)
 print(join)
-ggsave(filename = file.path(project_folder, res_folder, "phyla_pvalues.png"), plot = join, device = "png", width = 15, height = 9)
+#ggsave(filename = file.path(project_folder, res_folder, "phyla_pvalues.png"), plot = join, device = "png", width = 16, height = 9)
 
 ###############
 ## Taxonomic analysis at genus level
@@ -231,12 +241,27 @@ otu_genus=select(otu, 2:32)
 otu_genus$Genera <- paste(otu$Phylum, otu$Class, otu$Order, otu$Family, otu$Genus, sep = "; ")
 otu_genus <- otu_genus %>% group_by(Genera) %>% summarise(across(everything(),sum))
 
+# Overall
+
 writeLines(" - generating table of core microbiota at genus level")
 core_genera <- otu_genus%>%filter_all(all_vars(.!=0))
 core_genera$avg_count <- rowMeans(subset(core_genera, select = c(2:32)))
 fwrite(x = core_genera, file = file.path(project_folder, res_folder, "genera_core.csv"))
 
+# T0 or other 
+
+core_genera_T0 <- core_genera%>%filter_all(all_vars(.!=0))
+vec <- filter(metadata, timepoint == "T0") 
+vec <- pull(vec, sample) 
+vec <- append(vec, "Genera")
+core_genera_T0 <- subset(core_genera_T0, select=vec)
+# rownames(core_genera_T0) <- core_genera_T0$Genera
+# core_genera_T0$Genera <- NULL
+core_genera_T0$avg_count <- rowMeans(subset(core_genera_T0, select = c(1:7)))
+fwrite(x = core_genera_T0, file = file.path(project_folder, res_folder, "core_genera_T0.csv"))
+
 ## Taxonomic analysis at genera level - relative abundances
+
 otu_genus=select(otu, 2:32, 38)
 otu_genus <- otu_genus %>% group_by(Genus) %>% summarise(across(everything(),sum))
 uncult <- slice(otu_genus, 1, 481:498)
@@ -320,7 +345,7 @@ D$level  <- factor(D$level,levels = c("genus"))
 D <- D %>%
   arrange(level,taxa)
 DX <- D %>%
-  filter(`p.value` <= 0.05) %>% 
+    filter(`p.value` <= 0.05) %>% 
   dplyr::select(c(level,taxa, `p.value`)) %>%
   arrange(level,`p.value`)
 D0 <- mO %>%
@@ -384,20 +409,49 @@ for (name in DX$taxa) {
 
 comp <- temp[,c(2,4:6)]
 comp <- comp %>% pivot_longer(cols = T0:T2, names_to = "timepoint", names_prefix = "", values_to = "value")
+
+temp3 <- temp[,c(2,4,5,6)]
+temp3$'T0 vs T1' <- temp3$T0 - temp3$T1
+temp3$'T0 vs T2' <- temp3$T0 - temp3$T2
+temp3$T0 <- NULL
+temp3$T1 <- NULL
+temp3$T2 <- NULL
+comp3 <- temp3 %>% pivot_longer(cols = 'T0 vs T1':'T0 vs T2', names_to = "timepoint", names_prefix = "", values_to = "value") %>%
+#  mutate(rescaled_abundance = scales::rescale(value, to = c(0,100))) %>%
+  mutate(diff = value, flag = ifelse(diff > 0, "increase", "decrease"))
+
+# #procedure for heatmap
+# temp4 <- temp[,c(2,4,5,6)]
+# data_melt <- melt(temp4)
+# head(data_melt)
+# ggp <- ggplot(data_melt, aes(variable, taxa)) + geom_tile(aes(fill=value)) + scale_fill_gradient(low = "yellow", high = "red")  
+# ggp
+# ggsave(filename = file.path(project_folder, res_folder, "genera_pvalues_test.png"), plot = ggp, device = "png", width = 5, height = 15)
+
 q <- ggplot(temp, aes(x = factor(1), y = taxa, height=0.95)) +
   geom_tile(aes(fill = p.value), colour = "white") +
+  facet_grid( ~factor(1)) +
   scale_fill_gradient(low = "#1aff1a", high = "#4b0092", limits=c(0,0.05)) +
-  xlab("pvalue") + ylab("Genera") +
-  theme(axis.text.x = element_text(size = 19), axis.text.y = element_text(size = 13), axis.ticks = element_blank(), legend.position = "left", axis.title.x = element_blank(), axis.title.y = element_text(size=14))
+  xlab("") + ylab("Genera") +
+  theme(legend.position = "left")
 q
 
-comp$log <- -log10(comp$value)
-px <- ggplot(comp, aes(x=taxa, y=log, fill=timepoint)) + 
-  geom_bar(width=0.95,stat="identity", position=position_dodge()) + 
+p <- ggplot(comp3, aes(x = value, y = taxa, height=0.95)) + 
+  geom_col(aes(fill=flag)) +
+  facet_grid(~timepoint, space = "free", scales = "free") +
+  xlab("") +
   theme(axis.text.y = element_blank(), axis.title.y = element_blank(), axis.ticks.y = element_blank()) + 
-  coord_flip() + scale_fill_manual(values = c("#FFC20A", "#0C7BDC", "#e66100", "#40b0A6" )) + ylab("-log10(count)")
-px
+  scale_fill_manual(values=c("orange", "blue"))
+p
 
-join <- ggarrange(q, px, widths=c(0.5,1), heights=c(1,1), labels = c("A","B"))
+# comp$log <- -log10(comp$value)
+# px <- ggplot(comp, aes(x=taxa, y=log, fill=timepoint)) + 
+#   geom_bar(width=0.95,stat="identity", position=position_dodge()) + 
+#   theme(axis.text.y = element_blank(), axis.title.y = element_blank(), axis.ticks.y = element_blank()) + 
+#   coord_flip() + scale_fill_manual(values = c("#FFC20A", "#0C7BDC", "#e66100", "#40b0A6" )) + ylab("-log10(count)")
+# px
+
+join <- ggarrange(q, p, widths=c(0.5,1), heights=c(1,1), labels = c("A","B"))
 print(join)
-ggsave(filename = file.path(project_folder, res_folder, "genera_pvalues.png"), plot = join, device = "png", width = 15, height = 9)
+ggsave(filename = file.path(project_folder, res_folder, "genera_pvalues2.png"), plot = join, device = "png", width = 18, height = 20)
+

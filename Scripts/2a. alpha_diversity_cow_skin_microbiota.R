@@ -35,6 +35,8 @@ metadata = filter(metadata, sample != "sample-29")
 
 fname2 = file.path(project_folder, data_folder, alpha)
 alpha <- fread(fname2)
+names(alpha)[1] <- "sample"
+alpha$`sample` <- gsub("\\.", "-", alpha$`sample`)
 alpha = select(alpha, -c(se.chao1, se.ACE))
 
 ###############
@@ -53,6 +55,12 @@ D <- mAlpha %>%
   group_by(metric) %>%
   do(tidy(lm(value ~ timepoint, data = .))) %>%
   filter(term != "(Intercept)")
+
+#indices <- colnames(alpha)[-1]
+#for (k in indices)
+
+fit <- lm(value~timepoint, filter(mAlpha, metric == "InvSimpson")) #replace with index name
+summary(fit) #retrieve overall pvalue and single index per timepoint pvalue
 
 datatable(D, options = list(pageLength=100)) %>% 
   formatStyle('p.value', backgroundColor = styleInterval(0.05, c('yellow', 'white')))
